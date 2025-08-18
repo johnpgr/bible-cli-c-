@@ -1,0 +1,358 @@
+// #include "allocator.h"
+// #include <cstdlib>
+// #include <cstring>
+//
+// Allocator Allocator::init(
+//     void* context,
+//     void* (*alloc_fn)(void* context, size_t size, size_t alignment),
+//     void* (*realloc_fn)(
+//         void* context,
+//         void* ptr,
+//         size_t old_size,
+//         size_t new_size,
+//         size_t alignment
+//     ),
+//     void (*free_fn)(void* context, void* ptr, size_t size, size_t alignment)
+// ) {
+//     return Allocator{
+//         .context = context,
+//         .alloc_fn = alloc_fn,
+//         .realloc_fn = realloc_fn,
+//         .free_fn = free_fn,
+//     };
+// }
+//
+// void* Allocator::alloc(size_t size, size_t alignment) { return alloc_fn(context, size, alignment); }
+//
+// void* Allocator::realloc(void* ptr, size_t old_size, size_t new_size, size_t alignment) {
+//     return realloc_fn(context, ptr, old_size, new_size, alignment);
+// }
+//
+// void Allocator::free(void* ptr, size_t size, size_t alignment) {
+//     free_fn(context, ptr, size, alignment);
+// }
+//
+// template <typename T> T* Allocator::create() {
+//     void* ptr = alloc(sizeof(T), alignof(T));
+//     return (T*)(ptr);
+// }
+//
+// template <typename T> void Allocator::destroy(T* ptr) {
+//     if (ptr) {
+//         free(ptr, sizeof(T), alignof(T));
+//     }
+// }
+//
+// template <typename T> T* Allocator::alloc_array(size_t count) {
+//     void* ptr = alloc(sizeof(T) * count, alignof(T));
+//     return (T*)(ptr);
+// }
+//
+// template <typename T> void Allocator::free_array(T* ptr, size_t count) {
+//     if (ptr) {
+//         free(ptr, sizeof(T) * count, alignof(T));
+//     }
+// }
+//
+// Allocator PageAllocator::init() {
+//     return Allocator::init(nullptr, alloc_impl, realloc_impl, free_impl);
+// }
+//
+// void* PageAllocator::alloc_impl(void* context, size_t size, size_t alignment) {
+//     (void)context;
+//     (void)alignment;
+//
+//     return malloc(size);
+// }
+//
+// void* PageAllocator::realloc_impl(
+//     void* context,
+//     void* ptr,
+//     size_t old_size,
+//     size_t new_size,
+//     size_t alignment
+// ) {
+//     (void)context;
+//     (void)old_size;
+//     (void)alignment;
+//     return ::realloc(ptr, new_size);
+// }
+//
+// void PageAllocator::free_impl(void* context, void* ptr, size_t size, size_t alignment) {
+//     (void)context;
+//     (void)size;
+//     (void)alignment;
+//
+//     ::free(ptr);
+// }
+//
+// FixedBufferAllocator FixedBufferAllocator::init(void* buffer, size_t size) {
+//     return FixedBufferAllocator{
+//         .buffer = (unsigned char*)(buffer),
+//         .buffer_size = size,
+//         .offset = 0,
+//     };
+// }
+//
+// void FixedBufferAllocator::deinit() { offset = 0; }
+//
+// Allocator FixedBufferAllocator::allocator() {
+//     return Allocator::init(this, alloc_impl, realloc_impl, free_impl);
+// }
+//
+// void* FixedBufferAllocator::alloc_impl(void* context, size_t size, size_t alignment) {
+//     FixedBufferAllocator* fba = (FixedBufferAllocator*)(context);
+//
+//     size_t aligned_offset = fba->align_forward(fba->offset, alignment);
+//
+//     if (aligned_offset + size > fba->buffer_size) {
+//         // TODO: Better handling of this path here.
+//         return nullptr; // Out of memory
+//     }
+//
+//     void* ptr = fba->buffer + aligned_offset;
+//     fba->offset = aligned_offset + size;
+//
+//     return ptr;
+// }
+//
+// void* FixedBufferAllocator::realloc_impl(
+//     void* context,
+//     void* ptr,
+//     size_t old_size,
+//     size_t new_size,
+//     size_t alignment
+// ) {
+//     FixedBufferAllocator* fba = (FixedBufferAllocator*)(context);
+//
+//     unsigned char* byte_ptr = (unsigned char*)(ptr);
+//
+//     // Check if this is the last allocation and we can extend in place
+//     if (byte_ptr + old_size == fba->buffer + fba->offset) {
+//         if (byte_ptr + new_size <= fba->buffer + fba->buffer_size) {
+//             fba->offset = (byte_ptr - fba->buffer) + new_size;
+//             return ptr;
+//         }
+//     }
+//
+//     // Otherwise allocate new memory and copy
+//     void* new_ptr = alloc_impl(context, new_size, alignment);
+//     if (new_ptr && ptr) {
+//         memcpy(new_ptr, ptr, old_size < new_size ? old_size : new_size);
+//     }
+//
+//     return new_ptr;
+// }
+//
+// void FixedBufferAllocator::free_impl(void* context, void* ptr, size_t size, size_t alignment) {
+//     (void)context;
+//     (void)ptr;
+//     (void)size;
+//     (void)alignment;
+//     // noop for fixed buffer allocator.
+// }
+//
+// size_t FixedBufferAllocator::align_forward(size_t addr, size_t alignment) {
+//     return (addr + alignment - 1) & ~(alignment - 1);
+// }
+//
+// ArenaAllocator ArenaAllocator::init(Allocator child, size_t block_size) {
+//     return ArenaAllocator{
+//         .child_allocator = child,
+//         .current_block = nullptr,
+//         .block_size = block_size,
+//     };
+// }
+//
+// Allocator ArenaAllocator::allocator() {
+//     return Allocator::init(this, alloc_impl, realloc_impl, free_impl);
+// }
+//
+// void ArenaAllocator::deinit() {
+//     Block* block = current_block;
+//     while (block) {
+//         Block* next = block->next;
+//         child_allocator.free(block, block->size + sizeof(Block), alignof(Block));
+//         block = next;
+//     }
+//
+//     current_block = nullptr;
+// }
+//
+// void* ArenaAllocator::alloc_impl(void* context, size_t size, size_t alignment) {
+//     ArenaAllocator* arena = (ArenaAllocator*)(context);
+//
+//     if (!arena->ensure_capacity(size, alignment)) {
+//         // TODO: better handling of this path
+//         return nullptr; // Out of memory
+//     }
+//
+//     size_t aligned_offset = arena->align_forward(arena->current_block->offset, alignment);
+//     void* ptr = (unsigned char*)(arena->current_block + 1) + aligned_offset;
+//     arena->current_block->offset = aligned_offset + size;
+//
+//     return ptr;
+// }
+//
+// void* ArenaAllocator::realloc_impl(
+//     void* context,
+//     void* ptr,
+//     size_t old_size,
+//     size_t new_size,
+//     size_t alignment
+// ) {
+//     void* new_ptr = alloc_impl(context, new_size, alignment);
+//
+//     if (new_ptr && ptr) {
+//         memcpy(new_ptr, ptr, old_size < new_size ? old_size : new_size);
+//     }
+//
+//     return new_ptr;
+// }
+//
+// void ArenaAllocator::free_impl(void* context, void* ptr, size_t size, size_t alignment) {
+//     (void)context;
+//     (void)ptr;
+//     (void)size;
+//     (void)alignment;
+//     // noop for arena allocator
+// }
+//
+// bool ArenaAllocator::ensure_capacity(size_t size, size_t alignment) {
+//     if (!current_block ||
+//         align_forward(current_block->offset, alignment) + size > current_block->size) {
+//         size_t new_block_size = size > block_size ? size : block_size;
+//         Block* new_block =
+//             (Block*)(child_allocator.alloc(sizeof(Block) + new_block_size, alignof(Block)));
+//
+//         if (!new_block) {
+//             return false;
+//         }
+//
+//         new_block->next = current_block;
+//         new_block->size = new_block_size;
+//         new_block->offset = 0;
+//         current_block = new_block;
+//     }
+//
+//     return true;
+// }
+//
+// size_t ArenaAllocator::align_forward(size_t addr, size_t alignment) {
+//     return (addr + alignment - 1) & ~(alignment - 1);
+// }
+//
+// GeneralPurposeAllocator GeneralPurposeAllocator::init(size_t max_allocations) {
+//     AllocationInfo* allocations =
+//         (AllocationInfo*)(malloc(sizeof(AllocationInfo) * max_allocations));
+//
+//     for (size_t i = 0; i < max_allocations; i++) {
+//         allocations[i] = AllocationInfo{.size = 0, .is_allocated = false};
+//     }
+//
+//     return GeneralPurposeAllocator{
+//         .allocations = allocations,
+//         .allocation_count = 0,
+//         .max_allocations = max_allocations,
+//         .total_allocated = 0,
+//     };
+// }
+//
+// Allocator GeneralPurposeAllocator::allocator() {
+//     return Allocator::init(this, alloc_impl, realloc_impl, free_impl);
+// }
+//
+// bool GeneralPurposeAllocator::deinit() {
+//     bool has_leaks = allocation_count > 0;
+//     ::free(allocations);
+//
+//     allocations = nullptr;
+//     allocation_count = 0;
+//     total_allocated = 0;
+//
+//     return has_leaks;
+// }
+//
+// void* GeneralPurposeAllocator::alloc_impl(void* context, size_t size, size_t alignment) {
+//     GeneralPurposeAllocator* gpa = (GeneralPurposeAllocator*)(context);
+//     (void)alignment;
+//
+//     void* ptr = malloc(size);
+//
+//     if (ptr) {
+//         gpa->record_allocation(ptr, size);
+//     }
+//
+//     return ptr;
+// }
+//
+// void* GeneralPurposeAllocator::realloc_impl(
+//     void* context,
+//     void* ptr,
+//     size_t old_size,
+//     size_t new_size,
+//     size_t alignment
+// ) {
+//     GeneralPurposeAllocator* gpa = (GeneralPurposeAllocator*)(context);
+//
+//     (void)alignment;
+//     (void)old_size;
+//
+//     if (ptr) {
+//         gpa->remove_allocation(ptr);
+//     }
+//
+//     void* new_ptr = ::realloc(ptr, new_size);
+//     if (new_ptr) {
+//         gpa->record_allocation(new_ptr, new_size);
+//     }
+//
+//     return new_ptr;
+// }
+//
+// void GeneralPurposeAllocator::free_impl(void* context, void* ptr, size_t size, size_t alignment) {
+//     GeneralPurposeAllocator* gpa = (GeneralPurposeAllocator*)(context);
+//     (void)size;
+//     (void)alignment;
+//
+//     if (ptr) {
+//         gpa->remove_allocation(ptr);
+//         ::free(ptr);
+//     }
+// }
+//
+// std::optional<size_t> GeneralPurposeAllocator::find_allocation(void* ptr) {
+//     for (size_t i = 0; i < max_allocations; i++) {
+//         if (allocations[i].is_allocated &&
+//             (void*)((uintptr_t)(&allocations[i]) + sizeof(AllocationInfo)) == ptr) {
+//             return i;
+//         }
+//     }
+//
+//     return std::nullopt;
+// }
+//
+// void GeneralPurposeAllocator::record_allocation(void* ptr, size_t size) {
+//     (void)ptr;
+//
+//     for (size_t i = 0; i < max_allocations; i++) {
+//         if (!allocations[i].is_allocated) {
+//             allocations[i].size = size;
+//             allocations[i].is_allocated = true;
+//             allocation_count++;
+//             total_allocated += size;
+//             // TODO: Store ptr reference
+//             // For now its simplified
+//             break;
+//         }
+//     }
+// }
+//
+// void GeneralPurposeAllocator::remove_allocation(void* ptr) {
+//     auto index = find_allocation(ptr);
+//     if (index.has_value()) {
+//         allocations[index.value()].is_allocated = false;
+//         total_allocated -= allocations[index.value()].size;
+//         allocation_count--;
+//     }
+// }
