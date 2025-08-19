@@ -6,10 +6,18 @@ int main(int argc, char* argv[]) {
     Allocator allocator = arena.allocator();
     defer { arena.deinit(); };
 
-    CLIParser parser = CLIParser::init(allocator, "Bible Reader");
-    defer { parser.deinit(allocator); };
+    while(true){ 
+        std::println("Total Size: {} Allocated: {}", arena.max_size, arena.total_allocated);
+        if(!allocator.create<i32>()) {
+            std::println("Failed to allocate.");
+            exit(1);
+        }
+    }
 
-    parser.parse(argc, argv);
+    // CLIParser parser = CLIParser::init(allocator, "Bible Reader");
+    // defer { parser.deinit(allocator); };
+    //
+    // parser.parse(argc, argv);
 
     return 0;
 }
