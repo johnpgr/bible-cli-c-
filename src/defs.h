@@ -15,6 +15,11 @@ typedef float f32;
 typedef double f64;
 typedef size_t usize;
 
+#define BIT(x) 1 << (x)
+#define KB(x) ((usize)1024 * x)
+#define MB(x) ((usize)1024 * KB(x))
+#define GB(x) ((usize)1024 * MB(x))
+
 template <typename F> struct Defer {
     Defer(F f) : f(f) {}
     ~Defer() { f(); }

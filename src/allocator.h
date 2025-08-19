@@ -1,5 +1,6 @@
 #pragma once
 
+#include "defs.h"
 #include <cstddef>
 #include <optional>
 #include <cstdlib>
@@ -14,27 +15,27 @@ enum AllocatorError {
 
 struct Allocator {
     void* context;
-    void* (*alloc_fn)(void* context, size_t size, size_t alignment);
+    void* (*alloc_fn)(void* context, usize size, usize alignment);
     void* (*realloc_fn)(
         void* context,
         void* ptr,
-        size_t old_size,
-        size_t new_size,
-        size_t alignment
+        usize old_size,
+        usize new_size,
+        usize alignment
     );
-    void (*free_fn)(void* context, void* ptr, size_t size, size_t alignment);
+    void (*free_fn)(void* context, void* ptr, usize size, usize alignment);
 
     static Allocator init(
         void* context,
-        void* (*alloc_fn)(void* context, size_t size, size_t alignment),
+        void* (*alloc_fn)(void* context, usize size, usize alignment),
         void* (*realloc_fn)(
             void* context,
             void* ptr,
-            size_t old_size,
-            size_t new_size,
-            size_t alignment
+            usize old_size,
+            usize new_size,
+            usize alignment
         ),
-        void (*free_fn)(void* context, void* ptr, size_t size, size_t alignment)
+        void (*free_fn)(void* context, void* ptr, usize size, usize alignment)
     ) {
         return Allocator{
             .context = context,
@@ -45,15 +46,15 @@ struct Allocator {
     }
 
     // Main allocation methods
-    void* alloc(size_t size, size_t alignment = alignof(void*)) { 
+    void* alloc(usize size, usize alignment = alignof(void*)) { 
         return alloc_fn(context, size, alignment); 
     }
 
-    void* realloc(void* ptr, size_t old_size, size_t new_size, size_t alignment = alignof(void*)) {
+    void* realloc(void* ptr, usize old_size, usize new_size, usize alignment = alignof(void*)) {
         return realloc_fn(context, ptr, old_size, new_size, alignment);
     }
 
-    void free(void* ptr, size_t size, size_t alignment = alignof(void*)) {
+    void free(void* ptr, usize size, usize alignment = alignof(void*)) {
         free_fn(context, ptr, size, alignment);
     }
 
@@ -72,13 +73,13 @@ struct Allocator {
     }
 
     template <typename T> 
-    T* alloc_array(size_t count) {
+    T* alloc_array(usize count) {
         void* ptr = alloc(sizeof(T) * count, alignof(T));
         return (T*)(ptr);
     }
 
     template <typename T> 
-    void free_array(T* ptr, size_t count) {
+    void free_array(T* ptr, usize count) {
         if (ptr) {
             free(ptr, sizeof(T) * count, alignof(T));
         }
@@ -91,7 +92,7 @@ struct PageAllocator {
     }
 
   private:
-    static void* alloc_impl(void* context, size_t size, size_t alignment) {
+    static void* alloc_impl(void* context, usize size, usize alignment) {
         (void)context;
         (void)alignment;
 
@@ -99,14 +100,14 @@ struct PageAllocator {
     }
 
     static void*
-    realloc_impl(void* context, void* ptr, size_t old_size, size_t new_size, size_t alignment) {
+    realloc_impl(void* context, void* ptr, usize old_size, usize new_size, usize alignment) {
         (void)context;
         (void)old_size;
         (void)alignment;
         return ::realloc(ptr, new_size);
     }
 
-    static void free_impl(void* context, void* ptr, size_t size, size_t alignment) {
+    static void free_impl(void* context, void* ptr, usize size, usize alignment) {
         (void)context;
         (void)size;
         (void)alignment;
@@ -116,14 +117,34 @@ struct PageAllocator {
 };
 
 struct FixedBufferAllocator {
-    unsigned char* buffer;
-    size_t buffer_size;
-    size_t offset;
+    u8* buffer;
+    usize buffer_size;
+    usize offset;
 
-    static FixedBufferAllocator init(void* buffer, size_t size) {
+    static FixedBufferAllocator init(void* buffer, usize size) {
         return FixedBufferAllocator{
-            .buffer = (unsigned char*)(buffer),
+            .buffer = (u8*)(buffer),
             .buffer_size = size,
+            .offset = 0,
+        };
+    }
+
+    // Template version that deduces size from array types
+    template<usize N>
+    static FixedBufferAllocator init(u8 (&buffer)[N]) {
+        return FixedBufferAllocator{
+            .buffer = buffer,
+            .buffer_size = N,
+            .offset = 0,
+        };
+    }
+
+    // Template version for any array type
+    template<typename T, usize N>
+    static FixedBufferAllocator init(T (&buffer)[N]) {
+        return FixedBufferAllocator{
+            .buffer = (u8*)buffer,
+            .buffer_size = sizeof(T) * N,
             .offset = 0,
         };
     }
@@ -137,10 +158,10 @@ struct FixedBufferAllocator {
     }
 
   private:
-    static void* alloc_impl(void* context, size_t size, size_t alignment) {
+    static void* alloc_impl(void* context, usize size, usize alignment) {
         FixedBufferAllocator* fba = (FixedBufferAllocator*)(context);
 
-        size_t aligned_offset = fba->align_forward(fba->offset, alignment);
+        usize aligned_offset = fba->align_forward(fba->offset, alignment);
 
         if (aligned_offset + size > fba->buffer_size) {
             // TODO: Better handling of this path here.
@@ -154,10 +175,10 @@ struct FixedBufferAllocator {
     }
 
     static void*
-    realloc_impl(void* context, void* ptr, size_t old_size, size_t new_size, size_t alignment) {
+    realloc_impl(void* context, void* ptr, usize old_size, usize new_size, usize alignment) {
         FixedBufferAllocator* fba = (FixedBufferAllocator*)(context);
 
-        unsigned char* byte_ptr = (unsigned char*)(ptr);
+        u8* byte_ptr = (u8*)(ptr);
 
         // Check if this is the last allocation and we can extend in place
         if (byte_ptr + old_size == fba->buffer + fba->offset) {
@@ -176,7 +197,7 @@ struct FixedBufferAllocator {
         return new_ptr;
     }
 
-    static void free_impl(void* context, void* ptr, size_t size, size_t alignment) {
+    static void free_impl(void* context, void* ptr, usize size, usize alignment) {
         (void)context;
         (void)ptr;
         (void)size;
@@ -184,7 +205,7 @@ struct FixedBufferAllocator {
         // noop for fixed buffer allocator.
     }
 
-    size_t align_forward(size_t addr, size_t alignment) {
+    usize align_forward(usize addr, usize alignment) {
         return (addr + alignment - 1) & ~(alignment - 1);
     }
 };
@@ -194,18 +215,22 @@ struct ArenaAllocator {
 
     struct Block {
         Block* next;
-        size_t size;
-        size_t offset;
+        usize size;
+        usize offset;
     };
 
     Block* current_block;
-    size_t block_size;
+    usize block_size;
+    usize max_size;
+    usize total_allocated;
 
-    static ArenaAllocator init(Allocator child, size_t block_size = 4096) {
+    static ArenaAllocator init(Allocator child, usize block_size = 4096, usize max_size = 0) {
         return ArenaAllocator{
             .child_allocator = child,
             .current_block = nullptr,
             .block_size = block_size,
+            .max_size = max_size,
+            .total_allocated = 0,
         };
     }
 
@@ -222,10 +247,11 @@ struct ArenaAllocator {
         }
 
         current_block = nullptr;
+        total_allocated = 0;
     }
 
   private:
-    static void* alloc_impl(void* context, size_t size, size_t alignment) {
+    static void* alloc_impl(void* context, usize size, usize alignment) {
         ArenaAllocator* arena = (ArenaAllocator*)(context);
 
         if (!arena->ensure_capacity(size, alignment)) {
@@ -233,15 +259,15 @@ struct ArenaAllocator {
             return nullptr; // Out of memory
         }
 
-        size_t aligned_offset = arena->align_forward(arena->current_block->offset, alignment);
-        void* ptr = (unsigned char*)(arena->current_block + 1) + aligned_offset;
+        usize aligned_offset = arena->align_forward(arena->current_block->offset, alignment);
+        void* ptr = (u8*)(arena->current_block + 1) + aligned_offset;
         arena->current_block->offset = aligned_offset + size;
 
         return ptr;
     }
 
     static void*
-    realloc_impl(void* context, void* ptr, size_t old_size, size_t new_size, size_t alignment) {
+    realloc_impl(void* context, void* ptr, usize old_size, usize new_size, usize alignment) {
         void* new_ptr = alloc_impl(context, new_size, alignment);
 
         if (new_ptr && ptr) {
@@ -251,7 +277,7 @@ struct ArenaAllocator {
         return new_ptr;
     }
 
-    static void free_impl(void* context, void* ptr, size_t size, size_t alignment) {
+    static void free_impl(void* context, void* ptr, usize size, usize alignment) {
         (void)context;
         (void)ptr;
         (void)size;
@@ -259,12 +285,18 @@ struct ArenaAllocator {
         // noop for arena allocator
     }
 
-    bool ensure_capacity(size_t size, size_t alignment) {
+    bool ensure_capacity(usize size, usize alignment) {
         if (!current_block ||
             align_forward(current_block->offset, alignment) + size > current_block->size) {
-            size_t new_block_size = size > block_size ? size : block_size;
+            usize new_block_size = size > block_size ? size : block_size;
+            usize block_total_size = sizeof(Block) + new_block_size;
+
+            if(max_size > 0 && total_allocated + block_total_size > max_size) {
+                return false;
+            }
+
             Block* new_block =
-                (Block*)(child_allocator.alloc(sizeof(Block) + new_block_size, alignof(Block)));
+                (Block*)(child_allocator.alloc(block_total_size, alignof(Block)));
 
             if (!new_block) {
                 return false;
@@ -274,32 +306,33 @@ struct ArenaAllocator {
             new_block->size = new_block_size;
             new_block->offset = 0;
             current_block = new_block;
+            total_allocated += block_total_size;
         }
 
         return true;
     }
 
-    size_t align_forward(size_t addr, size_t alignment) {
+    usize align_forward(usize addr, usize alignment) {
         return (addr + alignment - 1) & ~(alignment - 1);
     }
 };
 
 struct GeneralPurposeAllocator {
     struct AllocationInfo {
-        size_t size;
+        usize size;
         bool is_allocated;
     };
 
     AllocationInfo* allocations;
-    size_t allocation_count;
-    size_t max_allocations;
-    size_t total_allocated;
+    usize allocation_count;
+    usize max_allocations;
+    usize total_allocated;
 
-    static GeneralPurposeAllocator init(size_t max_allocations = 1024) {
+    static GeneralPurposeAllocator init(usize max_allocations = 1024) {
         AllocationInfo* allocations =
             (AllocationInfo*)(malloc(sizeof(AllocationInfo) * max_allocations));
 
-        for (size_t i = 0; i < max_allocations; i++) {
+        for (usize i = 0; i < max_allocations; i++) {
             allocations[i] = AllocationInfo{.size = 0, .is_allocated = false};
         }
 
@@ -327,7 +360,7 @@ struct GeneralPurposeAllocator {
     }
 
   private:
-    static void* alloc_impl(void* context, size_t size, size_t alignment) {
+    static void* alloc_impl(void* context, usize size, usize alignment) {
         GeneralPurposeAllocator* gpa = (GeneralPurposeAllocator*)(context);
         (void)alignment;
 
@@ -341,7 +374,7 @@ struct GeneralPurposeAllocator {
     }
 
     static void*
-    realloc_impl(void* context, void* ptr, size_t old_size, size_t new_size, size_t alignment) {
+    realloc_impl(void* context, void* ptr, usize old_size, usize new_size, usize alignment) {
         GeneralPurposeAllocator* gpa = (GeneralPurposeAllocator*)(context);
 
         (void)alignment;
@@ -359,7 +392,7 @@ struct GeneralPurposeAllocator {
         return new_ptr;
     }
 
-    static void free_impl(void* context, void* ptr, size_t size, size_t alignment) {
+    static void free_impl(void* context, void* ptr, usize size, usize alignment) {
         GeneralPurposeAllocator* gpa = (GeneralPurposeAllocator*)(context);
         (void)size;
         (void)alignment;
@@ -370,8 +403,8 @@ struct GeneralPurposeAllocator {
         }
     }
 
-    std::optional<size_t> find_allocation(void* ptr) {
-        for (size_t i = 0; i < max_allocations; i++) {
+    std::optional<usize> find_allocation(void* ptr) {
+        for (usize i = 0; i < max_allocations; i++) {
             if (allocations[i].is_allocated &&
                 (void*)((uintptr_t)(&allocations[i]) + sizeof(AllocationInfo)) == ptr) {
                 return i;
@@ -381,10 +414,10 @@ struct GeneralPurposeAllocator {
         return std::nullopt;
     }
 
-    void record_allocation(void* ptr, size_t size) {
+    void record_allocation(void* ptr, usize size) {
         (void)ptr;
 
-        for (size_t i = 0; i < max_allocations; i++) {
+        for (usize i = 0; i < max_allocations; i++) {
             if (!allocations[i].is_allocated) {
                 allocations[i].size = size;
                 allocations[i].is_allocated = true;
