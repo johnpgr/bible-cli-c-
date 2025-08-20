@@ -1,6 +1,6 @@
 set -e
 
-CC_FLAGS="-std=c++23 -g -Wall -Wextra -Wpedantic"
+CC_FLAGS="-std=c++23 -g -Wall -Wextra -Wpedantic -Wno-writable-strings"
 
 mkdir -p build
 

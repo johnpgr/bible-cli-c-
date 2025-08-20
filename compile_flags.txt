@@ -2,3 +2,4 @@
 -Wall
 -Wextra
 -Wpedantic
+-Wno-writable-strings
