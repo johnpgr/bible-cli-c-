@@ -1,7 +1,7 @@
 #pragma once
 
 #include "allocator.h"
-#include "defs.h"
+#include "def.h"
 #include <cstring>
 #include <optional>
 
@@ -187,9 +187,15 @@ template <typename T> struct ArrayList {
         capacity = len;
     }
 
-    T& operator[](usize index) { return items[index]; }
+    std::optional<T> operator[](usize index) { 
+        if (index >= len) return std::nullopt;
+        return items[index]; 
+    }
 
-    T& operator[](usize index) const { return items[index]; }
+    std::optional<T> operator[](usize index) const { 
+        if (index >= len) return std::nullopt;
+        return items[index]; 
+    }
 
     T* slice(usize start, usize end = USIZE_MAX) {
         if (end == USIZE_MAX) end = len;

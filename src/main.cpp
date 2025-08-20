@@ -1,48 +1,106 @@
-#include "allocator.h"
 #include "cli.h"
-#include <cstdlib>
+#include "number.h"
+#include "string.h"
+#include <format>
 
 struct Application {
+    // The main allocator of the app
+    Allocator& allocator;
     // The file path to bible xml file
-    const char* file_path;
+    string file_path;
     // The book name. Examples: "John", "1 Corinthians", "1 Corinthians" The name should be in the
     // same language as the Bible file.
-    std::optional<const char*> book;
+    string book;
     // The chapter number
-    std::optional<usize> chapter;
-    /// The verse number or range of verses. Examples: "16", "4", "16-18"
-    std::optional<const char*> verses;
+    usize chapter;
+    /// The verses range that is gonna be read
+    /// If not set, the whole chapter is read
+    std::optional<ArrayList<usize>> verses;
 };
+
+ArrayList<usize> parse_verses(Allocator& allocator, string verse_str) {
+    ArrayList<usize> verses = ArrayList<usize>::init(allocator, 2);
+
+    if (string_contains(verse_str, "-")) { // Range case
+        char start_buffer[32];
+        char end_buffer[32];
+
+        i32 dash_pos = string_find(verse_str, "-");
+        if (string_substring(verse_str, 0, dash_pos, start_buffer, sizeof(start_buffer)) &&
+            string_substring(
+                verse_str,
+                dash_pos + 1,
+                (i32)strlen(verse_str) - dash_pos - 1,
+                end_buffer,
+                sizeof(end_buffer)
+            )) {
+            auto start = int_from_str<usize>(start_buffer);
+            auto end = int_from_str<usize>(end_buffer);
+            if (start.has_value() && end.has_value() && start.value() <= end.value()) {
+                verses.append(start.value());
+                verses.append(end.value());
+            }
+        }
+    } else { // Single verse case
+        auto verse = int_from_str<usize>(verse_str);
+        if (verse.has_value()) {
+            verses.append(verse.value());
+        }
+    }
+
+    return verses;
+}
 
 bool main_command_handler(CLICommand& command, void* user_data) {
     auto app = (Application*)user_data;
 
-    auto book = command.get_option_value("book");
-    if (!book.has_value()) {
-        std::println("Book option not found");
+    // Handle book option
+    auto book_opt = command.get_option("book");
+    if (!book_opt.has_value() || !book_opt->value.has_value()) {
+        std::println("Error: Book name is required. Use -b or --book to specify.");
         return false;
     }
-    app->book = book;
+    app->book = book_opt->value.value();
 
-    auto chapter = command.get_option_value("chapter");
-    if (!chapter.has_value()) {
-        std::println("Chapter option not found");
-        return false;
-    }
-
-    char* endptr;
-    i64 num_chapter = strtol(chapter.value(), &endptr, 10);
-    if (endptr == chapter.value()) {
-        return false;
-    } else if (*endptr != '\0') {
-        std::println("Invalid character in chapter option");
+    // Handle chapter option
+    auto chapter_opt = command.get_option("chapter");
+    if (!chapter_opt.has_value() || !chapter_opt->value.has_value()) {
+        std::println("Error: Chapter number is required. Use -c or --chapter to specify.");
         return false;
     }
 
-    app->chapter = (usize)num_chapter;
+    auto chapter_parsed = int_from_str<usize>(chapter_opt->value.value());
+    if (!chapter_parsed.has_value()) {
+        std::println("Error: Invalid chapter number '{}'", chapter_opt->value.value());
+        return false;
+    }
+    app->chapter = chapter_parsed.value();
 
-    std::println("Application book: {}", app->book.value());
-    std::println("Application chapter: {}", app->chapter.value());
+    // Handle verse option (optional)
+    auto verse_opt = command.get_option("verse");
+    if (verse_opt.has_value() && verse_opt->value.has_value()) {
+        ArrayList<usize> verses_parsed = parse_verses(app->allocator, verse_opt->value.value());
+        if (verses_parsed.len == 0) {
+            std::println("Error: Invalid verse number or range '{}'", verse_opt->value.value());
+            return false;
+        }
+
+        app->verses = verses_parsed;
+    }
+
+    std::println("Reading {} chapter {}", app->book, app->chapter);
+
+    if (app->verses.has_value()) {
+        ArrayList<usize> verses = app->verses.value();
+        auto verse_start = verses[0];
+        auto verse_end = verses[1];
+
+        if (verse_start.has_value() && verse_end.has_value()) {
+            std::println("Verses: {}..{}", verse_start.value(), verse_end.value());
+        } else if (verse_start.has_value()) {
+            std::println("Verse: {}", verse_start.value());
+        }
+    }
 
     return true;
 }
@@ -55,7 +113,7 @@ int main(int argc, char* argv[]) {
     CLIParser parser = CLIParser::init(allocator, "Bible Reader");
     defer { parser.deinit(); };
 
-    Application app;
+    Application app = {.allocator = allocator};
 
     CLICommand main_command = CLICommand::init(
         allocator,
@@ -65,9 +123,12 @@ int main(int argc, char* argv[]) {
         &app
     );
 
-    CLIOption book_option = CLIOption::init("-b", "--book", "Book name (e.g. John)", true);
-    CLIOption chapter_option = CLIOption::init("-c", "--chapter", "Chapter number", true);
-    CLIOption verse_option = CLIOption::init("-v", "--verse", "Verse number or range", true);
+    // TODO: the file should be the first parameter not option. e.g ./bible "path_to_bible_xml"
+    // --book...
+
+    CLIOption book_option = CLIOption::init("-b", "--book", "Book name (e.g. John)");
+    CLIOption chapter_option = CLIOption::init("-c", "--chapter", "Chapter number");
+    CLIOption verse_option = CLIOption::init("-v", "--verse", "Verse number or range");
 
     main_command.add_option(book_option);
     main_command.add_option(chapter_option);

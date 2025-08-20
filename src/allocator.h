@@ -1,10 +1,7 @@
 #pragma once
 
-#include "defs.h"
-#include <cstddef>
+#include "def.h"
 #include <optional>
-#include <cstdlib>
-#include <cstring>
 
 // TODO: Use these values
 enum AllocatorError {
