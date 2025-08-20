@@ -7,49 +7,68 @@ struct Application {
     // The main allocator of the app
     Allocator& allocator;
     // The file path to bible xml file
-    string file_path;
+    std::optional<string> file_path;
     // The book name. Examples: "John", "1 Corinthians", "1 Corinthians" The name should be in the
     // same language as the Bible file.
-    string book;
+    std::optional<string> book;
     // The chapter number
-    usize chapter;
+    std::optional<usize> chapter;
     /// The verses range that is gonna be read
     /// If not set, the whole chapter is read
-    std::optional<ArrayList<usize>> verses;
-};
+    ArrayList<usize> verses;
 
-ArrayList<usize> parse_verses(Allocator& allocator, string verse_str) {
-    ArrayList<usize> verses = ArrayList<usize>::init(allocator, 2);
-
-    if (string_contains(verse_str, "-")) { // Range case
-        char start_buffer[32];
-        char end_buffer[32];
-
-        i32 dash_pos = string_find(verse_str, "-");
-        if (string_substring(verse_str, 0, dash_pos, start_buffer, sizeof(start_buffer)) &&
-            string_substring(
-                verse_str,
-                dash_pos + 1,
-                (i32)strlen(verse_str) - dash_pos - 1,
-                end_buffer,
-                sizeof(end_buffer)
-            )) {
-            auto start = int_from_str<usize>(start_buffer);
-            auto end = int_from_str<usize>(end_buffer);
-            if (start.has_value() && end.has_value() && start.value() <= end.value()) {
-                verses.append(start.value());
-                verses.append(end.value());
-            }
-        }
-    } else { // Single verse case
-        auto verse = int_from_str<usize>(verse_str);
-        if (verse.has_value()) {
-            verses.append(verse.value());
-        }
+    static Application init(Allocator& allocator) {
+        return Application{
+            .allocator = allocator,
+            .file_path = std::nullopt,
+            .book = std::nullopt,
+            .chapter = std::nullopt,
+            .verses = ArrayList<usize>::init(allocator, 2)
+        };
     }
 
-    return verses;
-}
+    void deinit() { verses.deinit(); }
+
+    bool parse_verses(string verse_str) {
+        if (string_contains(verse_str, "-")) { // Range case
+            char start_buffer[32];
+            char end_buffer[32];
+
+            i32 dash_pos = string_find(verse_str, "-");
+            if (!string_substring(verse_str, 0, dash_pos, start_buffer, sizeof(start_buffer)) ||
+                !string_substring(
+                    verse_str,
+                    dash_pos + 1,
+                    (i32)strlen(verse_str) - dash_pos - 1,
+                    end_buffer,
+                    sizeof(end_buffer)
+                )) {
+                return false;
+            }
+
+            auto start = int_from_str<usize>(start_buffer);
+            auto end = int_from_str<usize>(end_buffer);
+            if (!start.has_value() || !end.has_value() || start.value() == 0 || end.value() == 0 ||
+                start.value() > end.value()) {
+                return false;
+            }
+
+            verses.append(start.value());
+            verses.append(end.value());
+        } else { // Single verse case
+            auto verse = int_from_str<usize>(verse_str);
+
+            if (!verse.has_value()) {
+                return false;
+            }
+
+            if (verse.value() == 0) return false;
+            verses.append(verse.value());
+        }
+
+        return true;
+    }
+};
 
 bool main_command_handler(CLICommand& command, void* user_data) {
     auto app = (Application*)user_data;
@@ -79,21 +98,17 @@ bool main_command_handler(CLICommand& command, void* user_data) {
     // Handle verse option (optional)
     auto verse_opt = command.get_option("verse");
     if (verse_opt.has_value() && verse_opt->value.has_value()) {
-        ArrayList<usize> verses_parsed = parse_verses(app->allocator, verse_opt->value.value());
-        if (verses_parsed.len == 0) {
+        if (!app->parse_verses(verse_opt->value.value()) || app->verses.len == 0) {
             std::println("Error: Invalid verse number or range '{}'", verse_opt->value.value());
             return false;
         }
-
-        app->verses = verses_parsed;
     }
 
-    std::println("Reading {} chapter {}", app->book, app->chapter);
+    std::println("Reading {} chapter {}", app->book.value(), app->chapter.value());
 
-    if (app->verses.has_value()) {
-        ArrayList<usize> verses = app->verses.value();
-        auto verse_start = verses[0];
-        auto verse_end = verses[1];
+    if (app->verses.len > 0) {
+        auto verse_start = app->verses[0];
+        auto verse_end = app->verses[1];
 
         if (verse_start.has_value() && verse_end.has_value()) {
             std::println("Verses: {}..{}", verse_start.value(), verse_end.value());
@@ -113,7 +128,8 @@ int main(int argc, char* argv[]) {
     CLIParser parser = CLIParser::init(allocator, "Bible Reader");
     defer { parser.deinit(); };
 
-    Application app = {.allocator = allocator};
+    Application app = Application::init(allocator);
+    defer { app.deinit(); };
 
     CLICommand main_command = CLICommand::init(
         allocator,
